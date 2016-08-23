@@ -1,0 +1,143 @@
+---
+title: "2006 (95)年糖尿病的病患人口基本統計"
+author: "許sir"
+
+---
+
+### Data Description
+- 1. 2006 (95)年的門急診資料
+- 2. 診斷代碼(欄位序號17、18、19)之 ICD9CM 的前三碼為250 (糖尿病)的病患人數
+
+#### [設定所需的函式庫(libraries)以及載入資料]
+```{r message=FALSE, warning=FALSE}
+options(stringsAsFactors = FALSE)
+op <- getwd()
+setwd("/media/hsusir/DATA/Github/Diabetes-mellitus/")
+
+```
+
+```{}
+load("/media/hsusir/DATA/Github/Diabetes-mellitus/h_nhi_opdte95.rda")
+install.packages("data.table")
+```
+
+```{r message=FALSE, warning=FALSE}
+library(data.table)
+system.time(load("h_nhi_opdte95.rda"))
+dim(h_nhi_opdte95)
+head(h_nhi_opdte95)
+names(h_nhi_opdte95)
+
+temp1 <- data.table(h_nhi_opdte95)
+setDT(temp1)[substr(icd9cm_1,1,3) %in% "250" | 
+             substr(icd9cm_2,1,3) %in% "250" |
+             substr(icd9cm_3,1,3) %in% "250", dm:=1]; gc()
+
+table(temp1$dm)
+ttt <- temp1[!duplicated( temp1[, list(temp1$id) ])==T,]
+setnames(temp1,"func_date","dm_date")
+
+dm1 <- subset(temp1, dm==1, select=c("id", "dm_date"))
+dm2 <- dm1[order(dm1$id, dm1$dm_date), ]
+dm3 <- dm2[!duplicated( dm2[, list(dm2$id) ])==T,]
+dim(dm3) 
+```
+
+### [第一部份].資料整理
+```{r message=FALSE, warning=FALSE}
+dt1 <- data.table(h_nhi_opdte95, key="id")
+dt2 <- data.table(dm3, key="id")
+temp2 <- merge(dt1, dt2, all = TRUE)
+temp2[, dm:=1]
+setDT(temp2)[is.na(dm_date), dm:=0]
+table(temp2$dm)
+
+temp2$age <- as.numeric(as.Date("20060101", "%Y%m%d") - as.Date(paste0(temp2$birth_ym, "15"), "%Y%m%d") + 1) / 365.25
+temp2[1:20, names(temp2) %in% c("id", "birth_ym", "age"), with = FALSE]
+summary(temp2$age)
+temp2$agegp <- as.numeric(cut(temp2$age, breaks = c(-Inf, 20, 65, Inf), labels=1:3), right = F)
+# temp2$agegp <- ifelse(temp2$age<20, 1, ifelse(20<=temp2$age & temp2$age<65, 2, 3))
+table(temp2$agegp)
+
+# count the number of instances of an attribute each patient had in their record
+mydata <- temp2[order(temp2$id, temp2$func_date), ]
+mydata[ , ':='( count = .N , idx = 1:.N ) , by = id ]
+# mydata[1:10, c("id", "func_date", "idx", "count"), with = FALSE]
+dm <- mydata[!duplicated( mydata[, list(mydata$id) ])==T,]
+# dm[1:10, c("id", "func_date", "idx", "count"), with = FALSE]
+dim(dm)
+
+```
+### [第二部份].基本糖尿病資訊
+
+#### **2-1.診斷代碼(欄位序號17、18、19)之 ICD9CM 的前三碼為250 (糖尿病)的病患人數，共有幾人(去重覆)**
+```{r message=FALSE, warning=FALSE}
+table(dm$dm) # for Q1
+```
+
+#### **2-2.以2006年1月1日為基準日，計算所有人的年齡，並分成年齡層< 20yr, 20-65yr,>=65yr等3組，各有幾人(去重覆))**
+```{r message=FALSE, warning=FALSE}
+table(dm$agegp) # for Q2
+```
+
+#### **2-3.男性與女性各有多少人有糖尿病(去重覆))**
+```{r message=FALSE, warning=FALSE}
+table(dm$dm, dm$id_s) # for Q3
+```
+
+### [第三部份].去除性別不明者、年齡<=0歲(2006年1月1日後出生)及重覆後，有糖尿病診斷的人與沒有糖尿病診斷的人 (小數位數四捨五入後兩位))
+
+#### **3-1.各是多少人？**
+```{r message=FALSE, warning=FALSE}
+dmsub <- as.data.frame(subset(dm, (id_s =="1" | id_s == "2") & (age > 0)))
+table(dmsub$dm)
+```
+
+#### **3-2.男性與女性各有多少人及其比例各是多少？有沒有差異？**
+```{r message=FALSE, warning=FALSE}
+(mytable1 <- table(dmsub$id_s, dmsub$dm))
+round(prop.table(mytable1, 2)*100, 2)
+# prop.table(mytable1, 2)*100
+summary(mytable1)
+```
+
+#### **3-3.年齡有沒有差異?**
+```{r message=FALSE, warning=FALSE}
+# dstats <- function(x)(c(mean=mean(x), sd=sd(x), 
+#                         median=median(x), quantile(x, probs = 0.25), quantile(x, probs = 0.75)))
+# xx <- by(dmsub$age, dmsub$dm, dstats)
+# xx[] <- lapply(xx, round, 2)
+# xx
+
+dstats <- function(x)(as.numeric(format(c(mean=mean(x), sd=sd(x), 
+                        median=median(x), quantile(x, probs = 0.25), quantile(x, probs = 0.75)), digits=4)))
+by(dmsub$age, dmsub$dm, dstats) 
+aggregate(dmsub$age, by=list(dm=dmsub$dm), dstats)
+var.test(age ~ dm, data=dmsub)
+# t.test(age ~ dm, data=dmsub, var.equal=T) 
+t.test(age ~ dm, data=dmsub) 
+
+wilcox.test(age ~ dm, data=dmsub)
+```
+
+#### **3-4.年齡層各有多少人及其比例各是多少？有沒有差異？**
+```{r message=FALSE, warning=FALSE}
+mytable2 <- table(dmsub$agegp, dmsub$dm)
+round(prop.table(mytable2, 2)*100, 2)
+summary(mytable2)
+```
+
+#### **3-5.全年的就醫次數平均、標準差各是多少？次數有沒有差異？**
+```{r message=FALSE, warning=FALSE}
+dstats <- function(x)(c(mean=mean(x), sd=sd(x), 
+                        median=median(x), quantile(x, probs = 0.25), quantile(x, probs = 0.75)))
+xx <- by(dmsub$count, dmsub$dm, dstats)
+xx[] <- lapply(xx, round, 2)
+xx
+var.test(count ~ dm, data=dmsub)
+# t.test(count ~ dm, data=dmsub, var.equal=T) 
+t.test(count ~ dm, data=dmsub) 
+
+wilcox.test(count ~ dm, data=dmsub)
+```
+
